@@ -3,10 +3,11 @@ package common
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/hashicorp/packer/helper/multistep"
 	"github.com/hashicorp/packer/packer"
 	"github.com/jetbrains-infra/packer-builder-vsphere/driver"
-	"time"
 )
 
 type StepWaitForIp struct{}
@@ -16,15 +17,25 @@ func (s *StepWaitForIp) Run(ctx context.Context, state multistep.StateBag) multi
 	vm := state.Get("vm").(*driver.VirtualMachine)
 
 	ui.Say("Waiting for IP...")
-
+	retries := 5
 	ipChan := make(chan string)
 	errChan := make(chan error)
 	go func() {
-		ip, err := vm.WaitForIP(ctx)
+		var err error
+		var ip string
+		for i := 1; i <= retries; i++ {
+			ip, err = vm.WaitForIP(ctx)
+			if err == nil {
+				ipChan <- ip
+				break
+			}
+			if i != retries {
+				ui.Say(fmt.Sprintf("Failed to get VM IP: %s", err))
+				ui.Say(fmt.Sprintf("Retrying to get VM IP... (Remaining attempts: %d)", retries-i))
+			}
+		}
 		if err != nil {
 			errChan <- err
-		} else {
-			ipChan <- ip
 		}
 	}()
 
